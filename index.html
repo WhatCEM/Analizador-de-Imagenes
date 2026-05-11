@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Analizador de Imágenes con IA</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .modo-card { transition: all 0.15s ease; }
+    .modo-card.activo { border-color: #6366f1; background-color: #eef2ff; }
+    .modo-card:hover:not(.activo) { border-color: #a5b4fc; background-color: #f5f3ff; }
+    #zona-drop.arrastrando { border-color: #6366f1; background-color: #eef2ff; }
+    #resultado { white-space: pre-wrap; }
+    .cursor-parpadeo::after { content: '▋'; animation: parpadeo 1s infinite; }
+    @keyframes parpadeo { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+    .prose h1, .prose h2, .prose h3 { font-weight: 700; margin-top: 1rem; margin-bottom: 0.5rem; }
+    .prose h1 { font-size: 1.25rem; }
+    .prose h2 { font-size: 1.1rem; }
+    .prose ul, .prose ol { padding-left: 1.5rem; margin: 0.5rem 0; }
+    .prose li { margin: 0.25rem 0; }
+    .prose strong { font-weight: 600; }
+    .prose code { background: #f3f4f6; padding: 0.1rem 0.3rem; border-radius: 0.25rem; font-size: 0.9em; }
+    .prose pre { background: #1f2937; color: #f9fafb; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; }
+    .prose pre code { background: none; padding: 0; }
+    .prose p { margin: 0.5rem 0; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+  <!-- Header -->
+  <header class="bg-white border-b border-gray-200 shadow-sm">
+    <div class="max-w-5xl mx-auto px-4 py-4 flex items-center gap-3">
+      <div class="text-3xl">🖼️</div>
+      <div>
+        <h1 class="text-xl font-bold text-gray-900">Analizador de Imágenes con IA</h1>
+        <p class="text-sm text-gray-500">Powered by Claude (Anthropic)</p>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-5xl mx-auto px-4 py-8">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+      <!-- Panel Izquierdo: Configuración -->
+      <div class="space-y-5">
+
+        <!-- Subir Imagen -->
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+          <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3">📷 Imagen</h2>
+
+          <!-- Tabs -->
+          <div class="flex gap-2 mb-4">
+            <button id="tab-archivo" onclick="cambiarTab('archivo')"
+              class="tab-btn px-4 py-2 rounded-lg text-sm font-medium bg-indigo-600 text-white">
+              📁 Archivo
+            </button>
+            <button id="tab-url" onclick="cambiarTab('url')"
+              class="tab-btn px-4 py-2 rounded-lg text-sm font-medium bg-gray-100 text-gray-600 hover:bg-gray-200">
+              🔗 URL
+            </button>
+          </div>
+
+          <!-- Zona de archivo -->
+          <div id="panel-archivo">
+            <div id="zona-drop"
+              class="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center cursor-pointer hover:border-indigo-400 transition-colors"
+              onclick="document.getElementById('input-imagen').click()"
+              ondragover="event.preventDefault(); this.classList.add('arrastrando')"
+              ondragleave="this.classList.remove('arrastrando')"
+              ondrop="soltarArchivo(event)">
+              <div class="text-4xl mb-2">⬆️</div>
+              <p class="text-gray-600 font-medium">Arrastra una imagen aquí</p>
+              <p class="text-gray-400 text-sm mt-1">o haz clic para seleccionar</p>
+              <p class="text-gray-400 text-xs mt-2">JPG, PNG, GIF, WebP</p>
+            </div>
+            <input type="file" id="input-imagen" accept="image/jpeg,image/png,image/gif,image/webp"
+              class="hidden" onchange="previewImagen(this)">
+          </div>
+
+          <!-- Zona de URL -->
+          <div id="panel-url" class="hidden">
+            <input type="url" id="input-url" placeholder="https://ejemplo.com/imagen.jpg"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              oninput="previewURL(this.value)">
+            <p class="text-xs text-gray-400 mt-1">Ingresa la URL directa de una imagen</p>
+          </div>
+
+          <!-- Preview -->
+          <div id="preview-container" class="hidden mt-3">
+            <img id="preview-img" class="w-full max-h-48 object-contain rounded-lg border border-gray-200 bg-gray-50" alt="Preview">
+            <p id="preview-nombre" class="text-xs text-gray-500 mt-1 text-center truncate"></p>
+          </div>
+        </div>
+
+        <!-- Modos de Análisis -->
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+          <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3">🎯 Modo de Análisis</h2>
+          <div class="grid grid-cols-2 gap-2" id="modos-container">
+            {% for id, modo in modos.items() %}
+            <div class="modo-card border-2 border-gray-200 rounded-xl p-3 cursor-pointer"
+              data-modo="{{ id }}" onclick="seleccionarModo('{{ id }}')">
+              <div class="text-xl mb-1">{{ modo.icono }}</div>
+              <div class="text-xs font-semibold text-gray-800 leading-tight">{{ modo.nombre }}</div>
+            </div>
+            {% endfor %}
+            <div class="modo-card border-2 border-gray-200 rounded-xl p-3 cursor-pointer col-span-2"
+              data-modo="preguntar" onclick="seleccionarModo('preguntar')">
+              <div class="text-xl mb-1">💬</div>
+              <div class="text-xs font-semibold text-gray-800">Pregunta Personalizada</div>
+            </div>
+          </div>
+
+          <!-- Pregunta personalizada -->
+          <div id="campo-pregunta" class="hidden mt-3">
+            <textarea id="input-pregunta" rows="2"
+              placeholder="Ej: ¿Cuántas personas hay en la imagen? ¿Qué hora es?"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"></textarea>
+          </div>
+        </div>
+
+        <!-- System Prompt -->
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">⚙️ Instrucciones al Modelo</h2>
+            <button onclick="toggleSystemPrompt()" id="btn-toggle-sp"
+              class="text-xs text-indigo-600 hover:text-indigo-800 font-medium px-2 py-1 rounded border border-indigo-200 hover:bg-indigo-50 transition-colors">
+              + Agregar
+            </button>
+          </div>
+          <div id="panel-system-prompt" class="hidden">
+            <p class="text-xs text-gray-400 mb-2">Define cómo debe comportarse Claude al analizar la imagen. Esto se envía como instrucción del sistema antes del análisis.</p>
+            <textarea id="input-system-prompt" rows="4"
+              placeholder="Ej: Eres un experto en medicina. Analiza las imágenes desde una perspectiva clínica usando terminología médica precisa. Organiza siempre tu respuesta en: Hallazgos, Interpretación y Recomendaciones."
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y"></textarea>
+            <div class="flex gap-2 mt-2 flex-wrap">
+              <span class="text-xs text-gray-500 font-medium">Ejemplos rápidos:</span>
+              <button onclick="setSystemPrompt('Eres un experto en diseño gráfico. Analiza composición, tipografía, uso del espacio y jerarquía visual.')"
+                class="text-xs bg-gray-100 hover:bg-indigo-100 text-gray-600 hover:text-indigo-700 px-2 py-0.5 rounded-full transition-colors">Diseño</button>
+              <button onclick="setSystemPrompt('Eres un perito judicial. Analiza la imagen con detalle forense: fecha, metadatos visibles, coherencia, posibles manipulaciones.')"
+                class="text-xs bg-gray-100 hover:bg-indigo-100 text-gray-600 hover:text-indigo-700 px-2 py-0.5 rounded-full transition-colors">Forense</button>
+              <button onclick="setSystemPrompt('Eres un profesor. Explica el contenido de la imagen de manera simple, usando analogías y ejemplos para que lo entienda un principiante.')"
+                class="text-xs bg-gray-100 hover:bg-indigo-100 text-gray-600 hover:text-indigo-700 px-2 py-0.5 rounded-full transition-colors">Educativo</button>
+              <button onclick="setSystemPrompt('Eres un analista de negocios. Extrae datos, métricas y tendencias relevantes. Estructura la respuesta en: KPIs detectados, Análisis e Insights accionables.')"
+                class="text-xs bg-gray-100 hover:bg-indigo-100 text-gray-600 hover:text-indigo-700 px-2 py-0.5 rounded-full transition-colors">Negocios</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modelo -->
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+          <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3">🤖 Modelo Claude</h2>
+          <select id="select-modelo"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            {% for m in modelos %}
+            <option value="{{ m.id }}">{{ m.nombre }} — {{ m.desc }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <!-- Botón Analizar -->
+        <button id="btn-analizar" onclick="analizar()"
+          class="w-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold py-3 px-6 rounded-xl shadow transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-base">
+          <span id="btn-icono">🔍</span>
+          <span id="btn-texto">Analizar Imagen</span>
+        </button>
+
+      </div>
+
+      <!-- Panel Derecho: Resultado -->
+      <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex flex-col min-h-96">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">📊 Resultado</h2>
+          <div class="flex gap-2">
+            <button id="btn-copiar" onclick="copiarResultado()" class="hidden text-xs text-indigo-600 hover:text-indigo-800 font-medium px-2 py-1 rounded border border-indigo-200 hover:bg-indigo-50 transition-colors">
+              📋 Copiar
+            </button>
+            <button id="btn-limpiar" onclick="limpiarResultado()" class="hidden text-xs text-gray-500 hover:text-gray-700 font-medium px-2 py-1 rounded border border-gray-200 hover:bg-gray-50 transition-colors">
+              🗑️ Limpiar
+            </button>
+          </div>
+        </div>
+
+        <!-- Estado inicial -->
+        <div id="estado-inicial" class="flex-1 flex flex-col items-center justify-center text-center py-12">
+          <div class="text-5xl mb-4 opacity-30">🤖</div>
+          <p class="text-gray-400 font-medium">El análisis aparecerá aquí</p>
+          <p class="text-gray-300 text-sm mt-1">Sube una imagen y selecciona un modo</p>
+        </div>
+
+        <!-- Loading -->
+        <div id="estado-loading" class="hidden flex-1 flex flex-col items-center justify-center text-center py-12">
+          <div class="text-5xl mb-4 animate-pulse">🔄</div>
+          <p class="text-gray-500 font-medium">Analizando imagen...</p>
+          <p class="text-gray-400 text-sm mt-1" id="loading-modelo">Usando Claude</p>
+          <div class="mt-4 flex gap-1">
+            <div class="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style="animation-delay:0s"></div>
+            <div class="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style="animation-delay:0.15s"></div>
+            <div class="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style="animation-delay:0.3s"></div>
+          </div>
+        </div>
+
+        <!-- Resultado -->
+        <div id="estado-resultado" class="hidden flex-1 overflow-y-auto">
+          <div id="resultado" class="prose prose-sm text-gray-800 text-sm leading-relaxed"></div>
+        </div>
+
+        <!-- Error -->
+        <div id="estado-error" class="hidden flex-1 flex items-start justify-start">
+          <div class="bg-red-50 border border-red-200 rounded-lg p-4 w-full">
+            <div class="flex items-start gap-2">
+              <span class="text-red-500 text-lg">❌</span>
+              <div>
+                <p class="text-red-700 font-semibold text-sm">Error</p>
+                <p id="mensaje-error" class="text-red-600 text-sm mt-1"></p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Info -->
+    <div class="mt-6 bg-indigo-50 border border-indigo-200 rounded-xl p-4 text-sm text-indigo-700">
+      <p class="font-semibold mb-1">💡 Consejos</p>
+      <ul class="list-disc list-inside space-y-1 text-indigo-600 text-xs">
+        <li>Para mejores resultados con documentos, usa imágenes de alta resolución</li>
+        <li>El modo "Extraer Texto" funciona como OCR para capturas de pantalla y documentos</li>
+        <li>Para código, sube capturas de tu IDE o editor de texto</li>
+        <li>Claude Opus 4.7 es el más potente; Haiku 4.5 es el más económico</li>
+        <li>También puedes usar la herramienta CLI: <code class="bg-indigo-100 px-1 rounded">python analizador.py imagen.jpg --modo describir</code></li>
+      </ul>
+    </div>
+  </main>
+
+  <script>
+    let modoActual = 'describir';
+    let tabActual = 'archivo';
+    let textoResultado = '';
+
+    // Seleccionar modo por defecto
+    document.addEventListener('DOMContentLoaded', () => {
+      seleccionarModo('describir');
+    });
+
+    function cambiarTab(tab) {
+      tabActual = tab;
+      document.getElementById('panel-archivo').classList.toggle('hidden', tab !== 'archivo');
+      document.getElementById('panel-url').classList.toggle('hidden', tab !== 'url');
+      document.getElementById('tab-archivo').className = tab === 'archivo'
+        ? 'tab-btn px-4 py-2 rounded-lg text-sm font-medium bg-indigo-600 text-white'
+        : 'tab-btn px-4 py-2 rounded-lg text-sm font-medium bg-gray-100 text-gray-600 hover:bg-gray-200';
+      document.getElementById('tab-url').className = tab === 'url'
+        ? 'tab-btn px-4 py-2 rounded-lg text-sm font-medium bg-indigo-600 text-white'
+        : 'tab-btn px-4 py-2 rounded-lg text-sm font-medium bg-gray-100 text-gray-600 hover:bg-gray-200';
+      document.getElementById('preview-container').classList.add('hidden');
+    }
+
+    function soltarArchivo(event) {
+      event.preventDefault();
+      document.getElementById('zona-drop').classList.remove('arrastrando');
+      const file = event.dataTransfer.files[0];
+      if (file) {
+        const input = document.getElementById('input-imagen');
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        input.files = dt.files;
+        previewImagen(input);
+      }
+    }
+
+    function previewImagen(input) {
+      const file = input.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        document.getElementById('preview-img').src = e.target.result;
+        document.getElementById('preview-nombre').textContent = file.name;
+        document.getElementById('preview-container').classList.remove('hidden');
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function previewURL(url) {
+      if (url.startsWith('http')) {
+        document.getElementById('preview-img').src = url;
+        document.getElementById('preview-nombre').textContent = url;
+        document.getElementById('preview-container').classList.remove('hidden');
+      }
+    }
+
+    function seleccionarModo(modo) {
+      modoActual = modo;
+      document.querySelectorAll('.modo-card').forEach(card => {
+        card.classList.toggle('activo', card.dataset.modo === modo);
+      });
+      document.getElementById('campo-pregunta').classList.toggle('hidden', modo !== 'preguntar');
+    }
+
+    function mostrarEstado(estado) {
+      ['estado-inicial', 'estado-loading', 'estado-resultado', 'estado-error'].forEach(id => {
+        document.getElementById(id).classList.add('hidden');
+      });
+      document.getElementById('estado-' + estado).classList.remove('hidden');
+    }
+
+    function limpiarResultado() {
+      textoResultado = '';
+      document.getElementById('resultado').innerHTML = '';
+      document.getElementById('btn-copiar').classList.add('hidden');
+      document.getElementById('btn-limpiar').classList.add('hidden');
+      mostrarEstado('inicial');
+    }
+
+    async function copiarResultado() {
+      try {
+        await navigator.clipboard.writeText(textoResultado);
+        const btn = document.getElementById('btn-copiar');
+        btn.textContent = '✅ Copiado';
+        setTimeout(() => btn.textContent = '📋 Copiar', 2000);
+      } catch {
+        alert('No se pudo copiar. Selecciona el texto manualmente.');
+      }
+    }
+
+    function renderizarMarkdown(texto) {
+      // Renderizado básico de Markdown
+      return texto
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+        .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+        .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+        .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+        .replace(/^- (.+)$/gm, '<li>$1</li>')
+        .replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>')
+        .replace(/\n\n/g, '</p><p>')
+        .replace(/\n/g, '<br>');
+    }
+
+    function toggleSystemPrompt() {
+      const panel = document.getElementById('panel-system-prompt');
+      const btn = document.getElementById('btn-toggle-sp');
+      const oculto = panel.classList.toggle('hidden');
+      btn.textContent = oculto ? '+ Agregar' : '− Ocultar';
+    }
+
+    function setSystemPrompt(texto) {
+      const panel = document.getElementById('panel-system-prompt');
+      const btn = document.getElementById('btn-toggle-sp');
+      if (panel.classList.contains('hidden')) {
+        panel.classList.remove('hidden');
+        btn.textContent = '− Ocultar';
+      }
+      document.getElementById('input-system-prompt').value = texto;
+    }
+
+    async function analizar() {
+      // Validar imagen
+      const inputArchivo = document.getElementById('input-imagen');
+      const inputURL = document.getElementById('input-url');
+      const tieneArchivo = tabActual === 'archivo' && inputArchivo.files.length > 0;
+      const tieneURL = tabActual === 'url' && inputURL.value.trim().startsWith('http');
+
+      if (!tieneArchivo && !tieneURL) {
+        alert('Por favor, sube una imagen o ingresa una URL.');
+        return;
+      }
+
+      if (modoActual === 'preguntar' && !document.getElementById('input-pregunta').value.trim()) {
+        alert('Por favor, escribe tu pregunta.');
+        return;
+      }
+
+      // Preparar UI
+      const btn = document.getElementById('btn-analizar');
+      btn.disabled = true;
+      document.getElementById('btn-icono').textContent = '⏳';
+      document.getElementById('btn-texto').textContent = 'Analizando...';
+      document.getElementById('btn-copiar').classList.add('hidden');
+      document.getElementById('btn-limpiar').classList.add('hidden');
+
+      const modeloSeleccionado = document.getElementById('select-modelo').value;
+      document.getElementById('loading-modelo').textContent = `Usando ${modeloSeleccionado}`;
+      mostrarEstado('loading');
+      textoResultado = '';
+
+      // Construir FormData
+      const formData = new FormData();
+      formData.append('modo', modoActual);
+      formData.append('modelo', modeloSeleccionado);
+      formData.append('pregunta', document.getElementById('input-pregunta').value.trim());
+      formData.append('system_prompt', document.getElementById('input-system-prompt').value.trim());
+
+      if (tieneArchivo) {
+        formData.append('imagen', inputArchivo.files[0]);
+      } else {
+        formData.append('url_imagen', inputURL.value.trim());
+      }
+
+      try {
+        const response = await fetch('/analizar', { method: 'POST', body: formData });
+
+        if (!response.ok) {
+          throw new Error(`Error HTTP: ${response.status}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let primerToken = true;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lineas = buffer.split('\n');
+          buffer = lineas.pop();
+
+          for (const linea of lineas) {
+            if (!linea.startsWith('data: ')) continue;
+            const datos = linea.slice(6);
+            if (datos === '[DONE]') break;
+
+            try {
+              const parsed = JSON.parse(datos);
+
+              if (parsed.error) {
+                document.getElementById('mensaje-error').textContent = parsed.error;
+                mostrarEstado('error');
+                return;
+              }
+
+              if (parsed.texto) {
+                if (primerToken) {
+                  mostrarEstado('resultado');
+                  document.getElementById('resultado').innerHTML = '';
+                  primerToken = false;
+                }
+                textoResultado += parsed.texto;
+                document.getElementById('resultado').innerHTML =
+                  '<p>' + renderizarMarkdown(textoResultado) + '</p>';
+
+                // Auto-scroll
+                const contenedor = document.getElementById('estado-resultado');
+                contenedor.scrollTop = contenedor.scrollHeight;
+              }
+            } catch {}
+          }
+        }
+
+        if (textoResultado) {
+          document.getElementById('btn-copiar').classList.remove('hidden');
+          document.getElementById('btn-limpiar').classList.remove('hidden');
+        }
+
+      } catch (err) {
+        document.getElementById('mensaje-error').textContent = err.message || 'Error al conectar con el servidor.';
+        mostrarEstado('error');
+      } finally {
+        btn.disabled = false;
+        document.getElementById('btn-icono').textContent = '🔍';
+        document.getElementById('btn-texto').textContent = 'Analizar Imagen';
+      }
+    }
+  </script>
+</body>
+</html>
